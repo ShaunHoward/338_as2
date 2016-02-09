@@ -1,0 +1,17 @@
+Assignment 2 Grading Rubric
+---------------------------
+
+Total Points: 100
+
+1. Are all the requested submission parts there? 10 points.
+2. Does the code compile? 10 points.
+3. Are system calls checked for errors? 10 points.
+4. Does the program run and exit correctly? 10 points.
+5. Were the instructions followed?  (60 points total)
+  a. Parent process creates pipes before forking children? 10 points.
+  b. Parent process sends one line of input file to each mapper?  10 points.
+  c. Mappers read input from pipe? 10 points.
+  d. Mappers write characters to correct reducer? 10 points.
+  e. Reducers count occurrences of one letter?  10 points.
+  f. Reducers print correct output? 10 points.
+

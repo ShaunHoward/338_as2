@@ -1,0 +1,4 @@
+I like coding in C.
+I like manually allocating memory, and opening the registers window in Visual Studio to see the values of the eax register and blitting graphics to the screen and all the stuff that Dr. Dobbs wrote about in the 90s.
+My programming friends seem to believe that understanding this level of programming is good in a hand-wavy, theoretical sense, but when you consider all the web development, Java frameworks, and existing libraries most programmers today rely on, it's hard to really pin down a solid answer to the question "Why learn C?"
+This is my attempt to answer that question, and I believe it comes down to the basic programming concept of abstraction.
