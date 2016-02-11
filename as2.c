@@ -32,35 +32,48 @@ int reducer_pipes[REDUCER_COUNT][2];
  * correct reducer pipe for counting.
  */
 void Mapper(int curr_pipe){
+	printf("in mapper\n");
+	fflush(stdout);
+	//close mapper write end
+	int i =0;
+	for (i=0; i<MAPPER_COUNT; i++){
+		printf("about to close mapper pipe\n");
+		close(mapper_pipes[i][WRITE]);
+		printf("closed mapper pipe\n");
+		if (i!=curr_pipe){
+			close(mapper_pipes[i][READ]);
+		}
+	}
+
+	printf("closed mapper pipes in mapper\n");
+	
+	//close all reducer pipes
+	for (i=0; i<REDUCER_COUNT;i++){
+		close(reducer_pipes[i][READ]);
+	}
+	printf("got here in mapper\n");
+
 	//create buffer for read input character
-	char buffer;
+	char buffer[BUFF_SIZE] = {0};
+
+	read(mapper_pipes[curr_pipe][READ], buffer, BUFF_SIZE);
 
 	//read input data from pipe and inspect the characters
-	while (read(mapper_pipes[curr_pipe][READ], &buffer, 1) > 0) {
-		//convert character to number
-		int character = buffer;
-
+	for (i=0; i<strlen(buffer); i++){
 		//check if character is lower-case, if so, send to correct reducer
-		if (97 <= character && character <= 122){
+		if (97 <= buffer[i] && buffer[i] <= 122){
 			//find reducer for given character
-			int reducer = character - A_OFFSET;
+			int reducer = buffer[i] - A_OFFSET;
 
-			printf("curr buff: %s\n", &buffer);
+			printf("curr buff: %c\n", buffer[i]);
 			fflush(stdout);
 
-			//close read end of pipe
-			close(reducer_pipes[reducer][READ]);
-
 			//pass character to the correct reducer for that character
-			write(reducer_pipes[reducer][WRITE], &buffer, 1);
+			write(reducer_pipes[reducer][WRITE], &buffer[i], 1);
 		}
-		printf("stuck\n\n");
 	}
-	sleep(2);
-	printf("I got here");
 
 	//close reducer pipes write ends to signal end of input
-	int i;
 	for (i = 0; i < REDUCER_COUNT; i++)
 		close(reducer_pipes[i][WRITE]);
 
@@ -78,35 +91,45 @@ void Mapper(int curr_pipe){
  * exit with success if counting worked or exit with an error.
  */
 void Reducer(int curr_reducer, char char_to_count){
+	fflush(stdout);
+	int i=0;
+	//close mapper pipes	
+	for (i=0; i<MAPPER_COUNT; i++){
+		close(mapper_pipes[i][READ]);
+		close(mapper_pipes[i][WRITE]);
+	}
 
-	//close write end of reducer pipe to assure no writes
-	close(reducer_pipes[curr_reducer][WRITE]);
+	for (i=0; i<REDUCER_COUNT; i++){
+		if (i!=curr_reducer){
+			close(reducer_pipes[i][READ]);
+		}
+		close(reducer_pipes[i][WRITE]);
+	}
 
 	//use an unsigned char so no overflow occurs (only dealing with lower-case letters)
 	unsigned char buffer;
 	int char_count = 0;
 	//read input data from pipe and inspect one character at a time
 	while (read(reducer_pipes[curr_reducer][READ], &buffer, 1) > 0) {
-		printf("buffer: %c\n", buffer);
+		printf("reducer for %c received %c\n", char_to_count, buffer);
 		fflush(stdout);
 		//check if character is intended for this reducer
-		if (buffer == char_to_count){
+		//if (buffer == char_to_count){
 			char_count++;
-		} else {
-			//character does not match this reducer
-			perror("error in reducer, wrong character encountered in pipe");
-			fflush(stderr);
-			close(reducer_pipes[curr_reducer][READ]);
-			_exit(EXIT_FAILURE);
-		}
+		//} else {
+		//	//character does not match this reducer
+		//	perror("error in reducer, wrong character encountered in pipe");
+		//	fflush(stderr);
+		//	close(reducer_pipes[curr_reducer][READ]);
+		//	_exit(EXIT_FAILURE);
+		//}
 	}
-	printf("I hit this reducer point");
-	fflush(stdout);
+
 	//close read end of pipe
 	close(reducer_pipes[curr_reducer][READ]);
 
 	//print character count
-	printf("count %c: %d", char_to_count, char_count);
+	printf("count %c: %d\n", char_to_count, char_count);
 	fflush(stdout);
 	_exit(EXIT_SUCCESS);
 }
@@ -188,6 +211,7 @@ int read_and_distribute_lines(){
 			perror("fork");
 			return 1;
 		} else {
+			fflush(stdout);
 			close(reducer_pipes[curr_pipe][READ]);
 			close(reducer_pipes[curr_pipe][WRITE]);
 		}
@@ -204,12 +228,14 @@ int read_and_distribute_lines(){
 	// create space for line
 	char line[BUFF_SIZE];
 	curr_pipe = 0;
-
-	//divide input file among mappers, sending each mapper one line via a pipe
-	while(fgets(line, BUFF_SIZE, input) > 0 && curr_pipe < 4){
-		//close write side of pipe
-		close(mapper_pipes[curr_pipe][READ]);
-
+	
+	//for (i=0; i<MAPPER_COUNT;i++)
+	//	close(mapper_pipes[i][READ]);
+	
+        //divide input file among mappers, sending each mapper one line via a pipe
+	while(fgets(line, BUFF_SIZE, input) > 0 && curr_pipe < MAPPER_COUNT){
+		printf("current line %s", line);
+		fflush(stdout);
 		//write line to mapper pipe, read end already closed
 		write(mapper_pipes[curr_pipe][WRITE], line, BUFF_SIZE);
 
@@ -223,9 +249,9 @@ int read_and_distribute_lines(){
 
 	//wait for each child to exit
 	for (i = 0; i < MAPPER_COUNT; i++){
-		printf("I am a waiting parent");
+	    printf("waiting parent\n");
 	    fflush(stdout);
-		wait(&mappers[i]);
+	    wait(&mappers[i]);
 	}
 
 //	//close pipes to reducers
