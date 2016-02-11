@@ -6,29 +6,41 @@
 #include <sys/wait.h>
 
 #define A_OFFSET 97
-#define MAPPER_COUNT 4
+#define MAPPER_COUNT 1
 #define REDUCER_COUNT 26
 #define BUFF_SIZE 1024
 #define READ 0
 #define WRITE 1
 
+// create mapper pipes array
+int mapper_pipes[MAPPER_COUNT][2];
+
+// create reducer pipes array
+int reducer_pipes[REDUCER_COUNT][2];
+
 /**
  * Runs the mapper process, which creates 26 reducers to count all lowercase letters.
  */
-void Mapper(int mapper_pipes[2], int reducer_pipes[REDUCER_COUNT][2]){
-
+void Mapper(int curr_pipe){
+	//create buffer for read input character
 	char buffer;
+
 	//read input data from pipe and inspect the characters
-	while (read(mapper_pipes[0], &buffer, 1) > 0) {
+	while (read(mapper_pipes[curr_pipe][READ], &buffer, 1) > 0) {
 		//convert character to number
-		int character = atoi(&buffer);
+		int character = buffer;
 
-		//find reducer for given character
-		int reducer = character - A_OFFSET;
+		//check if character is lower-case, if so, send to correct reducer
+		if (97 <= character && character <= 122){
+			//find reducer for given character
+			int reducer = character - A_OFFSET;
 
-		//pass character to the correct reducer for that character
-		write(reducer_pipes[reducer][WRITE], &buffer, 1);
-	    sleep(1);
+			printf("curr buff: %s\n", &buffer);
+			fflush(stdout);
+
+			//pass character to the correct reducer for that character
+			write(reducer_pipes[reducer][WRITE], &buffer, 1);
+		}
 	}
 
 	//close reducer pipes write ends to signal end of input
@@ -36,14 +48,19 @@ void Mapper(int mapper_pipes[2], int reducer_pipes[REDUCER_COUNT][2]){
 	for (i = 0; i < REDUCER_COUNT; i++)
 		close(reducer_pipes[i][WRITE]);
 
-	exit(EXIT_SUCCESS);
+	_exit(EXIT_SUCCESS);
 }
 
-void Reducer(int reducer_pipe[2], char char_to_count){
+void Reducer(int curr_reducer, char char_to_count){
+
+	close(reducer_pipes[curr_reducer][WRITE]);
+
 	char buffer;
 	int char_count = 0;
 	//read input data from pipe and inspect one character at a time
-	while (read(reducer_pipe[0], &buffer, 1) > 0) {
+	while (read(reducer_pipes[curr_reducer][READ], &buffer, 1) > 0) {
+		printf("buffer: %s\n", &buffer);
+		fflush(stdout);
 		//check if character is intended for this reducer
 		if (buffer == char_to_count)
 			char_count++;
@@ -51,19 +68,18 @@ void Reducer(int reducer_pipe[2], char char_to_count){
 			//character does not match this reducer
 			perror("error in reducer, wrong character encountered in pipe");
 			fflush(stderr);
-			close(reducer_pipe[READ]);
-			exit(EXIT_FAILURE);
+			close(reducer_pipes[curr_reducer][READ]);
+			_exit(EXIT_FAILURE);
 		}
-	    sleep(1);
 	}
 
 	//close read end of pipe
-	close(reducer_pipe[READ]);
+	close(reducer_pipes[curr_reducer][READ]);
 
 	//print character count
 	printf("count %c: %d", char_to_count, char_count);
 	fflush(stdout);
-	exit(EXIT_SUCCESS);
+	_exit(EXIT_SUCCESS);
 }
 
 /**
@@ -74,9 +90,8 @@ void Reducer(int reducer_pipe[2], char char_to_count){
  * Returns 0 on success, 1 on error.
  */
 int open_and_distribute_lines(){
-	//create mapper pipes
-	int mapper_pipes[MAPPER_COUNT][2];
 	int i;
+	//create mapper pipes
 	for (i=0; i<MAPPER_COUNT; i++){
 		int status = pipe(mapper_pipes[i]);
 		//error check pipe
@@ -88,7 +103,6 @@ int open_and_distribute_lines(){
 	}
 
 	//create reducer pipes
-	int reducer_pipes[REDUCER_COUNT][2];
 	for (i=0; i<REDUCER_COUNT; i++){
 		int status = pipe(reducer_pipes[i]);
 		//error check pipe
@@ -98,8 +112,6 @@ int open_and_distribute_lines(){
 			return 1;
 		}
 	}
-
-	printf("created mapper and reducer pipes");
 
 	//store mapper pids
 	pid_t mappers[MAPPER_COUNT];
@@ -115,7 +127,7 @@ int open_and_distribute_lines(){
 			//close pipe write end
 			close(mapper_pipes[curr_pipe][WRITE]);
 			//run mapper process if child
-			Mapper(mapper_pipes[curr_pipe], reducer_pipes);
+			Mapper(curr_pipe);
 		} else if (mapper == -1){
 			//error check fork
 			perror("fork");
@@ -141,12 +153,16 @@ int open_and_distribute_lines(){
 
 		//run reducer process if child
 		if (reducer == 0){
+			close(reducer_pipes[curr_pipe][WRITE]);
 			//create a reducer to count occurrences of a specific character in input
-			Reducer(reducer_pipes[curr_pipe], char_to_count);
+			Reducer(curr_pipe, char_to_count);
 		} else if (reducer == -1){
 			//error check fork
 			perror("fork");
 			return 1;
+		} else {
+			close(reducer_pipes[curr_pipe][READ]);
+			close(reducer_pipes[curr_pipe][WRITE]);
 		}
 		//store pid of reducer
 		reducers[curr_pipe] = reducer;
@@ -181,12 +197,12 @@ int open_and_distribute_lines(){
 	for (i = 0; i < MAPPER_COUNT; i++)
 		wait(&mappers[i]);
 
-	//close pipes to reducers
-	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
-		//parent process, close both ends of reducer pipes
-		close(reducer_pipes[curr_pipe][READ]);
-		close(reducer_pipes[curr_pipe][WRITE]);
-	}
+//	//close pipes to reducers
+//	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
+//		//parent process, close both ends of reducer pipes
+//		close(reducer_pipes[curr_pipe][READ]);
+//		close(reducer_pipes[curr_pipe][WRITE]);
+//	}
 
 	//wait for each child to exit
 	for (i = 0; i < REDUCER_COUNT; i++)
