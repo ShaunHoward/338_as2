@@ -32,7 +32,8 @@ void Mapper(int mapper_pipes[2], int reducer_pipes[REDUCER_COUNT][2]){
 	}
 
 	//close reducer pipes write ends to signal end of input
-	for (int i = 0; i < REDUCER_COUNT; i++)
+	int i;
+	for (i = 0; i < REDUCER_COUNT; i++)
 		close(reducer_pipes[i][WRITE]);
 
 	exit(EXIT_SUCCESS);
@@ -60,7 +61,7 @@ void Reducer(int reducer_pipe[2], char char_to_count){
 	close(reducer_pipe[READ]);
 
 	//print character count
-	printf("count %c: %d", char_to_count);
+	printf("count %c: %d", char_to_count, char_count);
 	fflush(stdout);
 	exit(EXIT_SUCCESS);
 }
@@ -75,33 +76,37 @@ void Reducer(int reducer_pipe[2], char char_to_count){
 int open_and_distribute_lines(){
 	//create mapper pipes
 	int mapper_pipes[MAPPER_COUNT][2];
-	for (int i=0; i<MAPPER_COUNT; i++){
+	int i;
+	for (i=0; i<MAPPER_COUNT; i++){
 		int status = pipe(mapper_pipes[i]);
 		//error check pipe
 		if (status < 0){
 			perror("Failure in creating mapper pipe...");
 			fflush(stderr);
-			exit(EXIT_FAILURE);
+			return 1;
 		}
 	}
 
 	//create reducer pipes
 	int reducer_pipes[REDUCER_COUNT][2];
-	for (int i=0; i<REDUCER_COUNT; i++){
+	for (i=0; i<REDUCER_COUNT; i++){
 		int status = pipe(reducer_pipes[i]);
 		//error check pipe
 		if (status < 0){
 			perror("Failure in creating reducer pipe...");
 			fflush(stderr);
-			exit(EXIT_FAILURE);
+			return 1;
 		}
 	}
+
+	printf("created mapper and reducer pipes");
 
 	//store mapper pids
 	pid_t mappers[MAPPER_COUNT];
 
+	int curr_pipe;
 	//fork 4 mappers for reading each line of input
-	for (int curr_pipe = 0; curr_pipe < MAPPER_COUNT; curr_pipe++){
+	for (curr_pipe = 0; curr_pipe < MAPPER_COUNT; curr_pipe++){
 		//fork mapper
 		pid_t mapper = fork();
 
@@ -114,7 +119,7 @@ int open_and_distribute_lines(){
 		} else if (mapper == -1){
 			//error check fork
 			perror("fork");
-			exit(EXIT_FAILURE);
+			return 1;
 		} else {
 			//parent closes read end of pipe
 			close(mapper_pipes[curr_pipe][READ]);
@@ -127,12 +132,12 @@ int open_and_distribute_lines(){
 	pid_t reducers[REDUCER_COUNT];
 
 	//fork 26 reducers for counting occurrences of each letter in input
-	for (int curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
+	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
 		//fork reducer
 		pid_t reducer = fork();
 
 		//find the character the reducer will count
-		char char_to_count = atoi(curr_pipe);
+		char char_to_count = A_OFFSET + curr_pipe;
 
 		//run reducer process if child
 		if (reducer == 0){
@@ -141,7 +146,7 @@ int open_and_distribute_lines(){
 		} else if (reducer == -1){
 			//error check fork
 			perror("fork");
-			exit(EXIT_FAILURE);
+			return 1;
 		}
 		//store pid of reducer
 		reducers[curr_pipe] = reducer;
@@ -156,8 +161,8 @@ int open_and_distribute_lines(){
 	}
 
 	// create space for line
-	char *line;
-	int curr_pipe = 0;
+	char line[BUFF_SIZE];
+	curr_pipe = 0;
 
 	//divide input file among mappers, sending each mapper one line via a pipe
 	while(fgets(line, BUFF_SIZE, input) > 0 && curr_pipe < 4){
@@ -173,18 +178,18 @@ int open_and_distribute_lines(){
 	fclose(input);
 
 	//wait for each child to exit
-	for (int i = 0; i < MAPPER_COUNT; i++)
+	for (i = 0; i < MAPPER_COUNT; i++)
 		wait(&mappers[i]);
 
 	//close pipes to reducers
-	for (int curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
+	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
 		//parent process, close both ends of reducer pipes
 		close(reducer_pipes[curr_pipe][READ]);
 		close(reducer_pipes[curr_pipe][WRITE]);
 	}
 
 	//wait for each child to exit
-	for (int i = 0; i < REDUCER_COUNT; i++)
+	for (i = 0; i < REDUCER_COUNT; i++)
 		wait(&reducers[i]);
 
 	return 0;
