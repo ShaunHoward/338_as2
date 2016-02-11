@@ -5,6 +5,13 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+/***********************
+ * @author Shaun Howard
+ * EECS 338 as2
+ */
+
+//define numeric constants
+//alpha offset is where the lowercase letters start in ascii
 #define A_OFFSET 97
 #define MAPPER_COUNT 1
 #define REDUCER_COUNT 26
@@ -19,7 +26,10 @@ int mapper_pipes[MAPPER_COUNT][2];
 int reducer_pipes[REDUCER_COUNT][2];
 
 /**
- * Runs the mapper process, which creates 26 reducers to count all lowercase letters.
+ * Runs the mapper which reads input data from the
+ * current pipe and checks if it's a lowercase letter.
+ * If the letter is lowercase, it will write it to the
+ * correct reducer pipe for counting.
  */
 void Mapper(int curr_pipe){
 	//create buffer for read input character
@@ -38,33 +48,51 @@ void Mapper(int curr_pipe){
 			printf("curr buff: %s\n", &buffer);
 			fflush(stdout);
 
+			//close read end of pipe
+			close(reducer_pipes[reducer][READ]);
+
 			//pass character to the correct reducer for that character
 			write(reducer_pipes[reducer][WRITE], &buffer, 1);
 		}
+		printf("stuck\n\n");
 	}
+	sleep(2);
+	printf("I got here");
 
 	//close reducer pipes write ends to signal end of input
 	int i;
 	for (i = 0; i < REDUCER_COUNT; i++)
 		close(reducer_pipes[i][WRITE]);
 
+	printf("at exit");
+	fflush(stdout);
 	_exit(EXIT_SUCCESS);
 }
 
+/**
+ * Runs the reducer which counts the occurrences of the character it
+ * is designed to check for given char_to_count. The number of the
+ * current reducer represents its place in the reducer pipe array.
+ * It reads from its pipe and counts the number of characters
+ * it has been fed via the pipe. It will close its pipe and
+ * exit with success if counting worked or exit with an error.
+ */
 void Reducer(int curr_reducer, char char_to_count){
 
+	//close write end of reducer pipe to assure no writes
 	close(reducer_pipes[curr_reducer][WRITE]);
 
-	char buffer;
+	//use an unsigned char so no overflow occurs (only dealing with lower-case letters)
+	unsigned char buffer;
 	int char_count = 0;
 	//read input data from pipe and inspect one character at a time
 	while (read(reducer_pipes[curr_reducer][READ], &buffer, 1) > 0) {
-		printf("buffer: %s\n", &buffer);
+		printf("buffer: %c\n", buffer);
 		fflush(stdout);
 		//check if character is intended for this reducer
-		if (buffer == char_to_count)
+		if (buffer == char_to_count){
 			char_count++;
-		else {
+		} else {
 			//character does not match this reducer
 			perror("error in reducer, wrong character encountered in pipe");
 			fflush(stderr);
@@ -72,7 +100,8 @@ void Reducer(int curr_reducer, char char_to_count){
 			_exit(EXIT_FAILURE);
 		}
 	}
-
+	printf("I hit this reducer point");
+	fflush(stdout);
 	//close read end of pipe
 	close(reducer_pipes[curr_reducer][READ]);
 
@@ -89,7 +118,7 @@ void Reducer(int curr_reducer, char char_to_count){
  * possible lower case letter in the line.
  * Returns 0 on success, 1 on error.
  */
-int open_and_distribute_lines(){
+int read_and_distribute_lines(){
 	int i;
 	//create mapper pipes
 	for (i=0; i<MAPPER_COUNT; i++){
@@ -120,15 +149,15 @@ int open_and_distribute_lines(){
 	//fork 4 mappers for reading each line of input
 	for (curr_pipe = 0; curr_pipe < MAPPER_COUNT; curr_pipe++){
 		//fork mapper
-		pid_t mapper = fork();
+		mappers[curr_pipe] = fork();
 
 		//determine if the child has control, error forking, or the parent has control
-		if (mapper == 0){
+		if (mappers[curr_pipe] == 0){
 			//close pipe write end
 			close(mapper_pipes[curr_pipe][WRITE]);
 			//run mapper process if child
 			Mapper(curr_pipe);
-		} else if (mapper == -1){
+		} else if (mappers[curr_pipe] == -1){
 			//error check fork
 			perror("fork");
 			return 1;
@@ -136,8 +165,6 @@ int open_and_distribute_lines(){
 			//parent closes read end of pipe
 			close(mapper_pipes[curr_pipe][READ]);
 		}
-		//store pid of mapper
-		mappers[curr_pipe] = mapper;
 	}
 
 	//store reducer pids
@@ -146,17 +173,17 @@ int open_and_distribute_lines(){
 	//fork 26 reducers for counting occurrences of each letter in input
 	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
 		//fork reducer
-		pid_t reducer = fork();
+		reducers[curr_pipe] = fork();
 
 		//find the character the reducer will count
 		char char_to_count = A_OFFSET + curr_pipe;
 
 		//run reducer process if child
-		if (reducer == 0){
+		if (reducers[curr_pipe] == 0){
 			close(reducer_pipes[curr_pipe][WRITE]);
 			//create a reducer to count occurrences of a specific character in input
 			Reducer(curr_pipe, char_to_count);
-		} else if (reducer == -1){
+		} else if (reducers[curr_pipe] == -1){
 			//error check fork
 			perror("fork");
 			return 1;
@@ -164,8 +191,6 @@ int open_and_distribute_lines(){
 			close(reducer_pipes[curr_pipe][READ]);
 			close(reducer_pipes[curr_pipe][WRITE]);
 		}
-		//store pid of reducer
-		reducers[curr_pipe] = reducer;
 	}
 
 	//read file and error check result
@@ -182,6 +207,9 @@ int open_and_distribute_lines(){
 
 	//divide input file among mappers, sending each mapper one line via a pipe
 	while(fgets(line, BUFF_SIZE, input) > 0 && curr_pipe < 4){
+		//close write side of pipe
+		close(mapper_pipes[curr_pipe][READ]);
+
 		//write line to mapper pipe, read end already closed
 		write(mapper_pipes[curr_pipe][WRITE], line, BUFF_SIZE);
 
@@ -194,8 +222,11 @@ int open_and_distribute_lines(){
 	fclose(input);
 
 	//wait for each child to exit
-	for (i = 0; i < MAPPER_COUNT; i++)
+	for (i = 0; i < MAPPER_COUNT; i++){
+		printf("I am a waiting parent");
+	    fflush(stdout);
 		wait(&mappers[i]);
+	}
 
 //	//close pipes to reducers
 //	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
@@ -212,8 +243,10 @@ int open_and_distribute_lines(){
 }
 
 int main(void){
-	//open file, read lines and distribute them across mappers and reducers
-	if(open_and_distribute_lines() == 1)
+	//open file, read lines and distribute them across mappers and count
+	//letter occurrences with reducers, which then print to console the count
+	//of each letter in the input file
+	if(read_and_distribute_lines() == 1)
 		exit(EXIT_FAILURE);
 	exit(EXIT_SUCCESS);
 }

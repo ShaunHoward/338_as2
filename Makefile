@@ -1,3 +1,3 @@
 CC=gcc
 make:
-	gcc -o letter_count letter_count.c -I.
+	gcc -o as2 as2.c -I.
