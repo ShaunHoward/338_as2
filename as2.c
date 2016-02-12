@@ -35,7 +35,7 @@ void closer(int pipe[2], int read, int write){
 	if (read == 1)
 		//error-check pipe
 		if (close(pipe[READ]) != 0){
-			perror("error closing read end of pipe...");
+			perror("Error closing read end of pipe...");
 			fflush(stderr);
 		}
 
@@ -43,7 +43,7 @@ void closer(int pipe[2], int read, int write){
 	if (write == 1)
 		//error-check pipe
 		if (close(pipe[WRITE]) != 0){
-			perror("error closing write end of pipe...");
+			perror("Error closing write end of pipe...");
 			fflush(stderr);
 		}
 }
@@ -73,7 +73,11 @@ void Mapper(int curr_pipe){
 	//create buffer for read input character
 	char buffer[BUFF_SIZE] = {0};
 
-	read(mapper_pipes[curr_pipe][READ], buffer, BUFF_SIZE);
+	//read the pipe into the buffer and make sure reading is correct
+	if (read(mapper_pipes[curr_pipe][READ], buffer, BUFF_SIZE) < 0){
+		perror("Error reading from mapper pipe...");
+		_exit(EXIT_FAILURE);
+	}
 
 	//read input data from pipe and inspect the characters
 	for (i=0; i<strlen(buffer); i++){
@@ -82,16 +86,18 @@ void Mapper(int curr_pipe){
 			//find reducer for given character
 			int reducer = buffer[i] - A_OFFSET;
 
-			//pass character to the correct reducer for that character
-			write(reducer_pipes[reducer][WRITE], &buffer[i], 1);
+			//pass character to the correct reducer for that character (and error check)
+			if (write(reducer_pipes[reducer][WRITE], &buffer[i], 1)<0){
+				perror("Error writing to reducer pipe...");
+				_exit(EXIT_FAILURE);
+			}
 		}
 	}
 
 	//close reducer pipes write ends to signal end of input
-	for (i = 0; i < REDUCER_COUNT; i++)
+	for (i=0; i<REDUCER_COUNT; i++)
 		closer(reducer_pipes[i], 0, 1);
 
-	fflush(stdout);
 	_exit(EXIT_SUCCESS);
 }
 
@@ -128,7 +134,7 @@ void Reducer(int curr_reducer, char char_to_count){
 			char_count++;
 		} else {
 			//character does not match this reducer
-			perror("error in reducer, wrong character encountered in pipe");
+			perror("Error in reducer, wrong character encountered in pipe...");
 			fflush(stderr);
 			closer(reducer_pipes[curr_reducer], 1, 0);
 			_exit(EXIT_FAILURE);
@@ -180,7 +186,7 @@ int read_and_distribute_lines(){
 
 	int curr_pipe;
 	//fork 4 mappers for reading each line of input
-	for (curr_pipe = 0; curr_pipe < MAPPER_COUNT; curr_pipe++){
+	for (curr_pipe=0; curr_pipe<MAPPER_COUNT; curr_pipe++){
 		//fork mapper
 		mappers[curr_pipe] = fork();
 
@@ -193,6 +199,7 @@ int read_and_distribute_lines(){
 		} else if (mappers[curr_pipe] == -1){
 			//error check fork
 			perror("fork");
+			fflush(stderr);
 			return 1;
 		} else {
 			//parent closes read end of mapper pipe
@@ -204,7 +211,7 @@ int read_and_distribute_lines(){
 	pid_t reducers[REDUCER_COUNT];
 
 	//fork 26 reducers for counting occurrences of each letter in input
-	for (curr_pipe = 0; curr_pipe < REDUCER_COUNT; curr_pipe++){
+	for (curr_pipe=0; curr_pipe<REDUCER_COUNT; curr_pipe++){
 		//find the character the reducer will count
 		char char_to_count = A_OFFSET + curr_pipe;
 
@@ -221,9 +228,8 @@ int read_and_distribute_lines(){
 		} else if (reducers[curr_pipe] == -1){
 			//error check fork
 			perror("fork");
+			fflush(stderr);
 			return 1;
-		} else {
-
 		}
 	}
 
@@ -241,16 +247,22 @@ int read_and_distribute_lines(){
 	
     //divide input file among mappers, sending each mapper one line via a pipe
 	while(fgets(line, BUFF_SIZE, input) > 0 && curr_pipe < MAPPER_COUNT){
-		//write line to mapper pipe, read end already closed
-		write(mapper_pipes[curr_pipe][WRITE], line, BUFF_SIZE);
+		//write line to mapper pipe, read end already closed (and error check)
+		if (write(mapper_pipes[curr_pipe][WRITE], line, BUFF_SIZE) < 0){
+			perror("Error writing to mapper pipe...");
+			fflush(stderr);
+		}
 
 		//close write side of pipe
 		closer(mapper_pipes[curr_pipe], 0, 1);
 		curr_pipe++;
 	}
 
-	//close file
-	fclose(input);
+	//close file and error check
+	if(fclose(input) != 0){
+		perror("Error occurred in closing the file...");
+		fflush(stderr);
+	}
 
 	//wait for each child to exit
 	for (i = 0; i < MAPPER_COUNT; i++){
