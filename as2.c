@@ -5,10 +5,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-/***********************
- * @author Shaun Howard
- * EECS 338 as2
- */
+/************************
+ * @author Shaun Howard *
+ * EECS 338 as2         *
+ ************************/
 
 //define numeric constants
 //alpha offset is where the lowercase letters start in ascii
@@ -50,8 +50,8 @@ void closer(int pipe[2], int read, int write){
 
 /**
  * Runs the mapper which reads input data from the
- * current pipe and checks if it's a lowercase letter.
- * If the letter is lowercase, it will write it to the
+ * current pipe and checks each character if it's a lowercase letter.
+ * If a letter is lowercase, it will write it to the
  * correct reducer pipe for counting.
  */
 void Mapper(int curr_pipe){
@@ -151,13 +151,21 @@ void Reducer(int curr_reducer, char char_to_count){
 }
 
 /**
- * Opens the input file, reads and distributes
- * each line to a mapper which uses reducers
- * to count the number of occurrences of each
- * possible lower case letter in the line.
- * Returns 0 on success, 1 on error.
+ * Creates pipes for mappers and reducers.
+ * Forks mappers and reducers which will use
+ * designated pipes. Closes appropriate pipe ends
+ * for reading/writing. Opens input.txt, which should
+ * be in the current working directory, and pipes
+ * each line to a mapper via the created pipes.
+ * Mappers take the input pipe data and send it
+ * on a per-letter basis to a reducer to count
+ * that specific letter occurrence (if lowercase).
+ * The parent process will wait for the mappers and then reducers to exit.
+ * Returns 0 on success, 1 on error. Note that
+ * mappers and reducers will exit by themselves with
+ * either EXIT_SUCCESS or EXIT_FAILURE.
  */
-int read_and_distribute_lines(){
+int MapReduce(){
 	int i;
 	//create mapper pipes
 	for (i=0; i<MAPPER_COUNT; i++){
@@ -280,7 +288,7 @@ int main(void){
 	//open file, read lines and distribute them across mappers and count
 	//letter occurrences with reducers, which then print to console the count
 	//of each letter in the input file
-	if(read_and_distribute_lines() == 1)
+	if(MapReduce() == 1)
 		exit(EXIT_FAILURE);
 	exit(EXIT_SUCCESS);
 }
